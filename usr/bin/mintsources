@@ -4,11 +4,28 @@ import os
 import subprocess
 import sys
 
+import xapp.os
+
+PROXY_FLAG = "--xapp-proxy="
+PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy")
+
 if os.getuid() != 0:
-    subprocess.run(["pkexec", "/usr/bin/mintsources"])
+    # pkexec sanitizes the environment, so carry the session's proxy across
+    xapp.os.add_network_proxy_to_env()
+    args = ["pkexec", "/usr/bin/mintsources"]
+    for var in PROXY_VARS:
+        value = os.environ.get(var)
+        if value:
+            args.append("%s%s=%s" % (PROXY_FLAG, var, value))
+    args.extend(sys.argv[1:])
+    exit(subprocess.run(args).returncode)
 else:
-    if len(sys.argv) > 1:
-        args = sys.argv[1:]
-    else:
-        args = []
-    exit(subprocess.run(["/usr/lib/linuxmint/mintSources/mintSources.py"] + args).returncode)
+    forwarded = []
+    for arg in sys.argv[1:]:
+        if arg.startswith(PROXY_FLAG):
+            key, _, value = arg[len(PROXY_FLAG):].partition("=")
+            if key in PROXY_VARS:
+                os.environ[key] = value
+        else:
+            forwarded.append(arg)
+    exit(subprocess.run(["/usr/lib/linuxmint/mintSources/mintSources.py"] + forwarded).returncode)
